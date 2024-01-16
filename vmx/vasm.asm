@@ -371,3 +371,4 @@ KipiVmcall:
 	vmcall
 	sti
 	ret
+
