@@ -10,8 +10,21 @@ extern NewSystemCall64
 extern GetSystemServiceFuncAddr
 extern GetDebugServiceFuncAddr
 extern DebugObject
+extern IsEnableDebug
+extern Driver_StartVT
 
 section .text
+
+global AsmCallForDriverEntry
+AsmCallForDriverEntry:
+	jmp .Entry
+	db 0xDE,0xAD,0xC0,0xDE
+.Entry:
+	push rcx
+	call Driver_StartVT
+	pop rcx
+	ret
+	int3
 
 
 global CallBackStartVM
@@ -55,9 +68,9 @@ HostEntry:
 	movups [rsp + 0x40], xmm4
 	movups [rsp + 0x50], xmm5
 
-	sub rsp,20h
+	sub rsp,100h
 	call VmmEntry
-	add rsp,20h
+	add rsp,100h
 
 	movups xmm0, [rsp + 0x00]
 	movups xmm1, [rsp + 0x10]
@@ -72,7 +85,9 @@ HostEntry:
 	popaq		
 	popfq		
 	add rsp,40h
+	nop
 	vmresume
+	nop
 	int3
 .leave_vmx:
 	popaq
@@ -208,6 +223,7 @@ vmx_invept:
 
 
 
+
 global HandlerSystemCall
 HandlerSystemCall:
 	swapgs
@@ -221,26 +237,14 @@ HandlerSystemCall:
 
 	push rax
 	push rcx
-
-	;KeGetCurrentThread()->ApcState.Process;
-	mov rax, gs:[ETHREAD] 	;KeGetCurrentThread
-	mov rax, [rax+EPROCESS]	;PsGetCurrentProcess
-
-	;DebugObject->DebugER
-	mov rcx,DebugObject	
-	mov rcx,[rcx+DEBUGER]	;<调试噐>
-	cmp rax,rcx				;比较是不是<调试噐>进程
-	jz .GotoNewSysCall64	;如果是<调试噐>进程,则跳转到处理函数
-
-	;DebugObject->DebugED
-	mov rcx,DebugObject	
-	mov rcx,[rcx+DEBUGED]	;<被调试>
-	cmp rax,rcx				;比较是不是<被调试>进程
-	jz .GotoNewSysCall64	;如果是<被调试>进程,则跳转到处理函数
-
+	mov rcx,rax
+	sub rsp,0x20
+	call IsEnableDebug
+	add rsp,0x20
+	cmp rax,0
 	pop rcx
 	pop rax
-	
+	jnz .GotoNewSysCall64
 
 .GotoOldSysCall64:				;原路返回
 	add rsp,8					;丢弃保存的R3->RSP
@@ -251,8 +255,6 @@ HandlerSystemCall:
 	int3
 
 .GotoNewSysCall64:
-	pop rcx
-	pop rax
 	add rsp,8					;丢弃保存的R3->RSP
 	mov gs:[GS_R0_RSP],rsp
 	mov rsp,gs:[GS_R3_RSP]

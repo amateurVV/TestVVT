@@ -56,7 +56,7 @@ efi: vmx.lib Bootx64.efi
 	make LoaderEFI
 	make clean2
 
-drv:vmx.lib Bootx64.efi
+drv:vmx.lib Bootx64.efi TestR3.exe
 	make LoaderDRV
 	make clean2
 
@@ -69,7 +69,7 @@ LoaderDRV:loaderDRV.o std.o util.o pe64.o hook.o first.o ept.o intel.o
 LoaderEFI:loaderEFI.o std.o util.o pe64.o hook.o first.o ept.o intel.o
 	@$(GCC) $(ENTRY) $(CFLAGS) $(DEBUG) $(UEFI_DRV) $(INCLUDE) $^ -o Loader.efi -L./ -lvmx
 
-vmx.lib:std.o vmx.o intel.o pe64.o vasm.o handler.o vmcall.o debug.o winsys.o file.o disasm.o syscall64.o winfunc.o winasm.o vad.o ept.o 
+vmx.lib:std.o vmx.o intel.o pe64.o vasm.o handler.o vmcall.o debug.o winsys.o file.o disasm.o syscall64.o winfunc.o winasm.o vad.o ept.o ssdt.o
 	@ar cr $@ $^
 
 

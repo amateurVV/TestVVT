@@ -51,7 +51,7 @@ DEBUGED     EQU 0x08
 	push rdi;
 	push rsi;
 	push rbp;
-	push rsp;
+	sub rsp,8;
 	push rbx;
 	push rdx;
 	push rcx;
@@ -70,7 +70,7 @@ DEBUGED     EQU 0x08
 	pop rcx;
 	pop rdx;
 	pop rbx;
-	pop rsp;
+	add rsp,8;
 	pop rbp;
 	pop rsi;
 	pop rdi;

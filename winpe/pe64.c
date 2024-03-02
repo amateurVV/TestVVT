@@ -27,7 +27,7 @@ void *GetSection(void *base, char *name)
     {
         for (uint8 byte = 0; byte < 10; byte++)
         {
-            if (cstricmp(pSection[index].Name, name) == TRUE)
+            if (std_cstricmp(pSection[index].Name, name) == TRUE)
                 return pSection + index;
         }
     }
@@ -44,7 +44,7 @@ uint64 GetSectionVirtualAddress(void *base, char *name)
     {
         for (uint8 byte = 0; byte < 10; byte++)
         {
-            if (cstricmp(pSection[index].Name, name) == TRUE)
+            if (std_cstricmp(pSection[index].Name, name) == TRUE)
                 return pSection[index].VirtualAddress;
         }
     }
@@ -60,7 +60,7 @@ uint64 GetSectionVirtualSize(void *base, char *name)
     {
         for (uint8 byte = 0; byte < 10; byte++)
         {
-            if (cstricmp(pSection[index].Name, name) == TRUE)
+            if (std_cstricmp(pSection[index].Name, name) == TRUE)
                 return pSection[index].Misc.VirtualSize;
         }
     }
@@ -101,7 +101,7 @@ void *GetImportFunctionByName(void *base, char *ModuleName, char *FunctionName)
     {
         if (ModuleName)
         {
-            if (!cstricmp((char *)((uint64)base + pImport[ImportCount].Name), ModuleName))
+            if (!std_cstricmp((char *)((uint64)base + pImport[ImportCount].Name), ModuleName))
                 continue;
         }
         PIMAGE_THUNK_DATA64 ThunkOriginal = (PIMAGE_THUNK_DATA64)((uint64)base + pImport[ImportCount].OriginalFirstThunk);
@@ -112,7 +112,7 @@ void *GetImportFunctionByName(void *base, char *ModuleName, char *FunctionName)
             if (!(ThunkOriginal[index].u1.Ordinal & IMAGE_ORDINAL_FLAG64))
             {
                 PIMAGE_IMPORT_BY_NAME importName = (PIMAGE_IMPORT_BY_NAME)((uint64)base + ThunkOriginal[index].u1.AddressOfData);
-                if (cstricmp(importName->Name, FunctionName))
+                if (std_cstricmp(importName->Name, FunctionName))
                     return (void *)(ThunkFunction[index].u1.Function);
             }
             index++;
@@ -150,7 +150,7 @@ void *GetExportFunctionByName(void *base, char *FunctionName)
     {
         char *name = (char *)base + offsetName[index]; // 取名称地址
 
-        if (cstricmp(name, FunctionName))
+        if (std_cstricmp(name, FunctionName))
         {
             return (void *)((uint64)base + offsetFunc[offsetOrd[index]]); // 取函数地址
         }

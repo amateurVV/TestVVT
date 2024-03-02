@@ -21,6 +21,13 @@ typedef enum _SERVICE_CLASS
     SERVICE_DEBUG_ENUMVAD,
     SERVICE_SUPER_HOOK,
     SERVICE_ENABLE_EPT_HOOK,
+    SERVICE_GET_MESSAGE,
+    SERVICE_HIDE_DRIVER,
+    SERVICE_UN_HIDE_DRIVER,
+    SERVICE_SET_CI,
+
+
+    
 
 
 
@@ -31,3 +38,4 @@ extern uint64 (*HandlerSystemService[SERVICE_MAX])();
 
 void InitHandlerSystemService();
 uint64 GetSystemServiceFuncAddr(uint64 number);
+

@@ -19,29 +19,29 @@ GetSysCallNumber:
     ret
 
 
-global PsGetCurrentProcess
-PsGetCurrentProcess:
+global VmGetCurrentProcess
+VmGetCurrentProcess:
     mov rax, gs:[ETHREAD]
     mov rax, [rax+EPROCESS]
     ret
 
-global PsGetCurrentThread
-PsGetCurrentThread:
+global VmGetCurrentThread
+VmGetCurrentThread:
     mov rax, gs:[ETHREAD]
     ret
 
-global PsGetProcessFullName
-PsGetProcessFullName:
+global VmGetProcessFullName
+VmGetProcessFullName:
     mov rax, [rcx+EPROCESS_FULL_NAME]
     ret
 
-global PsGetProcessName
-PsGetProcessName:
-    mov rax, [rcx+EPROCESS_NAME]
+global VmGetProcessName
+VmGetProcessName:
+    lea rax, [rcx+EPROCESS_NAME]
     ret
 
-global PsGetProcessCR3
-PsGetProcessCR3:
+global VmGetProcessCR3
+VmGetProcessCR3:
     mov rax, [rcx+DATABASE]
     ret
 

@@ -8,141 +8,179 @@
 #include "vasm.h"
 #include "winfunc.h"
 
-DEBUG_OBJECT DebugObject;
-uint64 (**HandlerDebugService)();
+uint64 g_lock_msg = 0;
+DEBUG_OBJECT DebugObject = {0};
 
-typedef NTSTATUS (*NTCREATEUSERPROCESS)();
-NTSTATUS HandlerNtCreateUserProcess(
-    PVOID ProcessHandle,
-    PVOID ThreadHandle,
-    PVOID ProcessDesiredAccess,
-    PVOID ThreadDesiredAccess,
-    PVOID ProcessObjectAttributes,
-    PVOID ThreadObjectAttributes,
-    PVOID ProcessFlags,
-    PVOID ThreadFlags,
-    PVOID ProcessParameters,
-    PVOID CreateInfo,
-    PVOID AttributeList)
+// 复制消息到应用层传来的地址
+uint64 ServiceGetMsg(PDBGMSG pMsg)
 {
+    while (InterlockedCmpExchange64(&g_lock_msg, 1, 0))
+        ;
+    PLIST_MSG HeadMsg = DebugObject.HeadMsg;
+    if (HeadMsg)
+    {
+        PLIST_MSG takeMsg = HeadMsg->Flink;
 
-    int3p("HandlerNtCreateUserProcess", ProcessParameters, AttributeList);
+        if (takeMsg != HeadMsg)
+        {
+            TargetProcessCR3(VmGetCurrentProcess());
 
-    ULONG CallNumber = GetSysCallNumber();
-    NTCREATEUSERPROCESS func = GetSysCallAddr();
+            // if (!MmIsAddressValid((PVOID)GuestRegs->rdx))
+            //     __invlpg((PVOID)GuestRegs->rdx);
 
-    NTSTATUS ret = func(
-        ProcessHandle,
-        ThreadHandle,
-        ProcessDesiredAccess,
-        ThreadDesiredAccess,
-        ProcessObjectAttributes,
-        ThreadObjectAttributes,
-        ProcessFlags,
-        ThreadFlags,
-        ProcessParameters,
-        CreateInfo,
-        AttributeList);
+            std_memcpy(pMsg, &takeMsg->msg, sizeof(DBGMSG));
 
-    return ret;
+            HeadMsg->Flink = takeMsg->Flink;
+            HeadMsg->Flink->Blink = takeMsg->Blink;
+            gvt->Os.Api.ExFreePool(takeMsg);
 
-    // //ProcessParameters+0x60==PUNICODE_STRING 全路径
-    // //ProcessParameters+0x70==PUNICODE_STRING 全路径+命令行参数
-    // //AttributeList+0x10==PUNICODE_STRING \??\全路径
-    // //[AttributeList+0x38]==CID
-    // //[AttributeList+0x58]==EntryPoint
-    // PUNICODE_STRING pwCreateName = (PUNICODE_STRING)((ULONG64)ProcessParameters + 0x60);
-
-    // if (pDebug->DebugState == DEBUG_STATE_WAIT_FOR_NAME)
-    // {
-    // 	/*注意:此函数ZwCreateUserProcess不是由被调试进程的线程调用的*/
-
-    // 	_wcslwr(pDebug->DebugName);
-    // 	_wcslwr(pwCreateName->Buffer);
-
-    // 	pDebug->DbgEvent.u.Event_CreateProcess.ProcessID = (PVOID)(*(PULONG64)(*(PULONG64)((ULONG64)AttributeList + 0x38)));
-    // 	pDebug->DbgEvent.u.Event_CreateProcess.EntryPoint = (PVOID)(*(PULONG64)(*(PULONG64)((ULONG64)AttributeList + 0x58)));
-    // 	pDebug->DbgEvent.u.Event_CreateProcess.hProcess = (HANDLE)(*(PULONG)ProcessHandle);
-    // 	pDebug->DbgEvent.u.Event_CreateProcess.hThread = (HANDLE)(*(PULONG)ThreadHandle);
-    // 	UCHAR name[0x11]={ 0 };
-    // 	std_memcpy(name, PsGetProcessImageFileName(IoGetCurrentProcess()),0x10);
-    // 	sprint(pDebug->DbgEvent.u.Event_CreateProcess.wName, L"%s->打开->%S", name, pwCreateName->Buffer);
-
-    // 	pDebug->EntryPoint = pDebug->DbgEvent.u.Event_CreateProcess.EntryPoint;
-
-    // 	pDebug->DbgEvent.EventCode = EVENT_CREATE_PROCESS;
-
-    // 	DbgBreakPoint();
-
-    // 	if (wcsstr(pwCreateName->Buffer, pDebug->DebugName))
-    // 	{
-    // 		//if (strcmp(name, "svchost.exe") != 0)
-    // 		//	return ret;
-
-    // 		/*pDebug->DbgEvent.u.Event_CreateProcess.ProcessID = (PVOID)(*(PULONG64)(*(PULONG64)((ULONG64)AttributeList + 0x38)));
-    // 		pDebug->DbgEvent.u.Event_CreateProcess.EntryPoint = (PVOID) (*(PULONG64)(*(PULONG64)((ULONG64)AttributeList + 0x58)));
-    // 		pDebug->DbgEvent.u.Event_CreateProcess.hProcess = (HANDLE)(*(PULONG)ProcessHandle);
-    // 		pDebug->DbgEvent.u.Event_CreateProcess.hThread = (HANDLE)(*(PULONG)ThreadHandle);
-    // 		sprint(pDebug->DbgEvent.u.Event_CreateProcess.wName, L"%S", pwCreateName->Buffer);*/
-
-    // 		PsLookupProcessByProcessId((HANDLE)pDebug->DbgEvent.u.Event_CreateProcess.ProcessID, (PEPROCESS*)&pDebug->DebugED);
-    // 		//PsSuspendProcess(pDebug->DebugED);
-    // 		//pDebug->IsSuspend = TRUE;
-    // 		//pDebug->EntryPoint = pDebug->DbgEvent.u.Event_CreateProcess.EntryPoint;
-
-    // 		//pDebug->DbgEvent.EventCode = EVENT_CREATE_PROCESS;
-    // 		pDebug->DebugState = DEBUG_STATE_DEBUGING;
-    // 	}
-    // }
+            InterlockedCmpExchange64(&g_lock_msg, 0, 1);
+            return TRUE;
+        }
+    }
+    InterlockedCmpExchange64(&g_lock_msg, 0, 1);
+    return FALSE;
 }
 
-// NTSTATUS HandlerNtMapViewOfSection(
-//   [in]                HANDLE          SectionHandle,
-//   [in]                HANDLE          ProcessHandle,
-//   [in, out]           PVOID           *BaseAddress,
-//   [in]                ULONG_PTR       ZeroBits,
-//   [in]                SIZE_T          CommitSize,
-//   [in, out, optional] PLARGE_INTEGER  SectionOffset,
-//   [in, out]           PSIZE_T         ViewSize,
-//   [in]                SECTION_INHERIT InheritDisposition,
-//   [in]                ULONG           AllocationType,
-//   [in]                ULONG           Win32Protect
-// );
-typedef NTSTATUS (*NTMAPVIEWOFSECTION)();
-NTSTATUS HandlerNtMapViewOfSection(
-    PVOID SectionHandle,
-    PVOID ProcessHandle,
-    PVOID BaseAddress,
-    PVOID ZeroBits,
-    PVOID CommitSize,
-    PVOID SectionOffset,
-    PVOID ViewSize,
-    PVOID InheritDisposition,
-    PVOID AllocationType,
-    PVOID Win32Protect)
+uint64 VmcallGetMsg(PGUESTREG GuestRegs)
 {
+    while (InterlockedCmpExchange64(&g_lock_msg, 1, 0))
+        ;
+    PLIST_MSG HeadMsg = DebugObject.HeadMsg;
+    if (HeadMsg)
+    {
+        PLIST_MSG takeMsg = HeadMsg->Flink;
 
-    int3p("HandlerNtMapViewOfSection", SectionHandle, ProcessHandle, BaseAddress);
+        if (takeMsg != HeadMsg)
+        {
+            TargetProcessCR3(VmGetCurrentProcess());
 
-    NTMAPVIEWOFSECTION func = GetSysCallAddr();
+            // if (!MmIsAddressValid((PVOID)GuestRegs->rdx))
+            //     __invlpg((PVOID)GuestRegs->rdx);
 
-    NTSTATUS ret = func(
-        SectionHandle,
-        ProcessHandle,
-        BaseAddress,
-        ZeroBits,
-        CommitSize,
-        SectionOffset,
-        ViewSize,
-        InheritDisposition,
-        AllocationType,
-        Win32Protect);
-    return ret;
+            std_memcpy((void *)GuestRegs->rcx, &takeMsg->msg, sizeof(DBGMSG));
+
+            HeadMsg->Flink = takeMsg->Flink;
+            HeadMsg->Flink->Blink = takeMsg->Blink;
+            gvt->Os.Api.ExFreePool(takeMsg);
+
+            InterlockedCmpExchange64(&g_lock_msg, 0, 1);
+            return TRUE;
+        }
+    }
+    InterlockedCmpExchange64(&g_lock_msg, 0, 1);
+    return FALSE;
 }
 
-void InitHandlerDebugService()
+// 创建消息并加入链表
+uint64 InsertMsg(uint64 type, void *eProcess, void *eThread, wchar *buffer)
 {
-    DebugBreak("InitHandlerDebugService", ServiceTableCount, HandlerDebugService, ssdt);
-    ssdt[NR_NtCreateUserProcess].handler = HandlerNtCreateUserProcess;
-    ssdt[NR_NtMapViewOfSection].handler = HandlerNtMapViewOfSection;
+    PLIST_MSG HeadMsg = DebugObject.HeadMsg;
+    if (HeadMsg)
+    {
+        LIST_MSG *pMsg = gvt->Os.Api.ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(LIST_MSG), 0x4342344);
+        if (pMsg)
+        {
+            pMsg->msg.type = type;
+            pMsg->msg.Thread = eThread;
+            pMsg->msg.Process = eProcess;
+            wstrcpy(pMsg->msg.buffer, buffer, wstrlen(buffer));
+            pMsg->msg.buffer[wstrlen(buffer)] = L'\0';
+
+            while (InterlockedCmpExchange64(&g_lock_msg, 1, 0))
+                ;
+            pMsg->Blink = HeadMsg->Blink;
+            pMsg->Flink = HeadMsg;
+            HeadMsg->Blink->Flink = pMsg;
+            HeadMsg->Blink = pMsg;
+            InterlockedCmpExchange64(&g_lock_msg, 0, 1);
+
+            return TRUE;
+        }
+    }
+    else
+    {
+        CreateMsg(eProcess, eThread);
+    }
+
+    return FALSE;
+}
+
+// 清空消息队列
+uint64 DeleteMsg()
+{
+    while (InterlockedCmpExchange64(&g_lock_msg, 1, 0))
+        ;
+    PLIST_MSG HeadMsg = DebugObject.HeadMsg;
+    if (HeadMsg)
+    {
+        LIST_MSG *IsRead = HeadMsg->Flink;
+        while (IsRead != HeadMsg)
+        {
+            HeadMsg->Flink = IsRead->Flink;
+            HeadMsg->Flink->Blink = IsRead->Blink;
+            gvt->Os.Api.ExFreePool(IsRead);
+            IsRead = HeadMsg->Flink;
+        }
+        gvt->Os.Api.ExFreePool(HeadMsg);
+    }
+    DebugObject.HeadMsg = 0;
+    InterlockedCmpExchange64(&g_lock_msg, 0, 1);
+    return TRUE;
+}
+
+uint64 CreateMsg(void *eProcess, void *eThread)
+{
+    PLIST_MSG HeadMsg = DebugObject.HeadMsg;
+    if (HeadMsg == 0)
+    {
+        HeadMsg = gvt->Os.Api.ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(LIST_MSG), 0x4342344);
+        if (HeadMsg == 0)
+            return FALSE;
+
+        HeadMsg->Blink = HeadMsg->Flink = HeadMsg;
+        DebugObject.HeadMsg = HeadMsg;
+
+        InsertMsg(1, eProcess, eThread, L"开启消息处理");
+        return TRUE;
+    }
+    return FALSE;
+}
+
+uint64 IsEnableDebug(uint64 CallNumber)
+{
+    if (gvt->DebugON)
+    {
+        if (IsMonitorProcess(VmGetCurrentProcess()))
+            return TRUE;
+        if (CallNumber == NR_NtCreateUserProcess)
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+PLIST_MONITOR IsMonitorProcess(void *EProcess)
+{
+    PLIST_MONITOR monitor = DebugObject.MonitorProcess;
+    while (monitor)
+    {
+        if (monitor->Process == EProcess)
+            return monitor;
+        monitor = monitor->Next;
+    }
+    return FALSE;
+}
+
+PLIST_MONITOR IsDebugProcess(wchar *ProcessName)
+{
+    PLIST_MONITOR monitor = DebugObject.MonitorProcess;
+    
+    while (monitor)
+    {
+        if (wstristr(ProcessName, monitor->name))
+            return monitor;
+        monitor = monitor->Next;
+    }
+    return FALSE;
 }

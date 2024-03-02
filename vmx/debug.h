@@ -1,4 +1,6 @@
 #pragma once
+#include "type.h"
+#include "vmx.h"
 #include "ssdt.h"
 
 // #define EXCEPTION_DEBUG_EVENT 1
@@ -113,15 +115,50 @@
 //     } u;
 // } DEBUG_EVENT, *LPDEBUG_EVENT;
 
+
+
+#define MSG_BUFFER_SIZE 0xEC
+
+typedef struct _DBGMSG {
+	uint64 type;
+	void* Process;
+	void* Thread;
+	wchar buffer[MSG_BUFFER_SIZE];
+}DBGMSG, * PDBGMSG;
+
+typedef struct _LIST_MSG {
+	struct _LIST_MSG* Blink;
+	struct _LIST_MSG* Flink;
+	DBGMSG msg;
+}LIST_MSG, * PLIST_MSG;
+
+typedef struct _LIST_MONITOR {
+	struct _LIST_MONITOR* Next;
+	void* Process;
+	wchar name[0x20];
+}LIST_MONITOR, * PLIST_MONITOR;
+
 typedef struct _DEBUG_OBJECT
 {
     void *DebugER; // 调试器
     void *DebugED; // 被调试
+	uint64 IsMonitor;
+	PLIST_MONITOR MonitorProcess;
+	
     // DEBUG_EVENT DebugEvent;
+    PLIST_MSG HeadMsg;
 
 } DEBUG_OBJECT, *PDEBUG_OBJECT;
 
-extern uint64 (**HandlerDebugService)();
-extern void InitHandlerDebugService();
+uint64 ServiceGetMsg(PDBGMSG pMsg);
+uint64 CreateMsg(void *eProcess, void *eThread);
+uint64 InsertMsg(uint64 type, void *eProcess, void *eThread, wchar *buffer);
+uint64 DeleteMsg();
 
 extern DEBUG_OBJECT DebugObject;
+
+uint64 IsEnableDebug(uint64 CallNumber);
+uint64 VmcallGetMsg(PGUESTREG GuestRegs);
+
+PLIST_MONITOR IsMonitorProcess(void *EProcess);
+PLIST_MONITOR IsDebugProcess(wchar *ProcessName);

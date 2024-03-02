@@ -67,6 +67,53 @@ uint32 wstrstr(wchar *str1, wchar *str2)
     return FALSE;
 }
 
+
+uint32 cstristr(char *str1, char *str2)
+{
+    while (*str1)
+    {
+        char *pstr1 = str1;
+        char *pstr2 = str2;
+        while (*pstr1 && *pstr2 && (cstrtolower(*pstr1) == cstrtolower(*pstr2)))
+        {
+            pstr1++;
+            pstr2++;
+        }
+        if (*pstr2 == '\0')
+        {
+            return TRUE;
+        }
+        str1++;
+    }
+    return FALSE;
+}
+
+/***************************
+ * @brief 查找字符串,忽略大小写
+ * @param str1 被查找的字符串
+ * @param str2 字符串
+ * @return 相同=TRUE,不同=FALSE
+ ***************************/
+uint32 wstristr(wchar *str1, wchar *str2)
+{
+    while (*str1)
+    {
+        wchar *pstr1 = str1;
+        wchar *pstr2 = str2;
+        while (*pstr1 && *pstr2 && (wstrtolower(*pstr1) == wstrtolower(*pstr2)))
+        {
+            pstr1++;
+            pstr2++;
+        }
+        if (*pstr2 == '\0')
+        {
+            return TRUE;
+        }
+        str1++;
+    }
+    return FALSE;
+}
+
 uint32 cstrlen(char *str)
 {
     uint32 len = 0;
@@ -223,7 +270,7 @@ uint32 cstrtolower(char c)
  * @param str2 字符串2
  * @return 相同=TRUE,不同=FALSE
  ***************************/
-uint32 wstricmp(wchar *str1, wchar *str2)
+uint32 std_wstricmp(wchar *str1, wchar *str2)
 {
     while (*str1 != '\0' && *str2 != '\0')
     {
@@ -244,7 +291,7 @@ uint32 wstricmp(wchar *str1, wchar *str2)
 /// @param str2 字符串2
 /// @return 相同返回 TRUE \
 /// @return 不同返回 FALSE
-uint32 cstricmp(char *str1, char *str2)
+uint32 std_cstricmp(char *str1, char *str2)
 {
     while (*str1 != '\0' && *str2 != '\0')
     {
@@ -333,7 +380,7 @@ uint32 wsprint(wchar *buffer, wchar *str, void *args)
         {
         case L'd':
         {
-            char cstr[0x10] = {0};
+            char cstr[0x20] = {0};
             wchar wstr[0x10] = {0};
             std_itoa(((uint64 *)args)[argIndex], cstr, 10);
             cstrTowstr(wstr, cstr);
@@ -548,7 +595,6 @@ int StrToBinary(char *code, char *pHex)
     return len;
 }
 
-
 /***************************
  * @brief 查找特征码
  * @param Base IN 要查找的内存起始位置
@@ -558,7 +604,7 @@ int StrToBinary(char *code, char *pHex)
  ***************************/
 void *std_FindCode(char *Base, int size, char *code)
 {
-    
+
     int len = 0, index = 0;
     char universal = 0xCC;
     char hex[0x40] = {0};

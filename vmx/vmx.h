@@ -1,4 +1,5 @@
 #pragma once
+#include "msr.h"
 #include "ssdt.h"
 #include "type.h"
 #include "wintype.h"
@@ -64,7 +65,7 @@ typedef union _SLONG64
         unsigned long HighPart;
     };
     unsigned long long QuadPart;
-} SLONG64;
+} SLONG64,*PSLONG64;
 
 typedef struct _OS
 {
@@ -100,7 +101,8 @@ typedef struct _OS
     struct
     {
         struct _LOADER_PARAMETER_BLOCK *pOslLoaderBlock;
-        struct _KLDR_DATA_TABLE_ENTRY *kernelModule;
+        struct _LDR_DATA_TABLE_ENTRY *kernelModule;
+        struct _LDR_DATA_TABLE_ENTRY* PsLoadedModuleList;
         uint32 *g_CiOptions;
         uint64 kernelCR3;
     } Data;
@@ -139,8 +141,9 @@ typedef struct _VT
     uint64 TotalMemGB;
     uint64 CpuCount;
     uint64 EnableEPT;
-    uint64 Debug;
+    uint64 DebugON;
     uint64 HideVMX;
+    PLDR_DATA_TABLE_ENTRY thisDrv;
     PVM vm;
 } VT, *PVT;
 
@@ -166,7 +169,7 @@ typedef struct _GUESTREG
 
     PVOID EProcess;
     PVOID EThread;
-    uint64 ExitReason;
+    EXIT_REASON_FIELDS ExitReason;
     uint64 GuestRip;
     uint64 GuestRsp;
     uint64 GuestFlag;
@@ -194,3 +197,5 @@ uint64 SetControls(uint64 *value, uint64 msr);
 
 uint64 Efi_StartVT(PVT ospvt);
 uint64 Driver_StartVT(void *NtosKernelBase);
+PLDR_DATA_TABLE_ENTRY HideDriver(PLDR_DATA_TABLE_ENTRY ListEntry,wchar*sysname);
+void* UnHideDriver(PLDR_DATA_TABLE_ENTRY ListEntry, PLDR_DATA_TABLE_ENTRY insert);

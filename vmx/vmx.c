@@ -11,10 +11,15 @@
 #include "winfunc.h"
 #include "pe64.h"
 #include "std.h"
+#include "file.h"
 #include "ept.h"
 
-uint64 OldSystemCall64;
 PVT gvt;
+uint64 OldSystemCall64;
+uint64 NewSystemCall64;
+PSERVICE_TABLE ssdt;
+uint64 ServiceTableCount;
+PVOID MakeSyscall64();
 
 uint64 IsSupportVT()
 {
@@ -24,8 +29,9 @@ uint64 IsSupportVT()
     if (!(arg[ECX] & CPUID_1_ECX_SUPPORT_VMX))
         return FALSE;
 
-    uint64 msr = rdmsr(MSR_IA32_FEATURE_CONTROL);
-    return ((PMSR_IA32_FEATURE_CONTROL_REGISTER)&msr)->Bits.Lock;
+    MSR_IA32_FEATURE_CONTROL_REGISTER msr;
+    msr.value = rdmsr(MSR_IA32_FEATURE_CONTROL);
+    return msr.Lock & msr.EnableVmxOutsideSmx;
 }
 uint64 IsSupportRDTSCP()
 {
@@ -297,7 +303,12 @@ uint64 SetVmxExtend(uint8 cpunr)
     gvt->vm[cpunr].ExecptBitMap = 0;
 
     if (gvt->EnableEPT)
+    {
+        gvt->vm[cpunr].ExecptBitMap |= 1 << 1;
         gvt->vm[cpunr].ExecptBitMap |= 1 << 3;
+        // gvt->vm[cpunr].ExecptBitMap |= 1 << 0xE;
+    }
+    // gvt->vm[cpunr].ExecptBitMap = 0;
 
     ret += vmx_write(EXCEPTION_BITMAP, gvt->vm[cpunr].ExecptBitMap);
 
@@ -362,7 +373,7 @@ uint64 SetVmxExecutionCTLS(uint8 cpunr, uint64 vmxctrl)
 
     PinBased.value = vmxctrl ? rdmsr(MSR_IA32_VMX_TRUE_PINBASED_CTLS) : rdmsr(MSR_IA32_VMX_PINBASED_CTLS);
     /*在这里设置《PinBased》*/
-    // PinBaseSet.Bits->ExIDT = TRUE;
+    // PinBaseSet.Bits->ExNMI = TRUE;
 
     if (!SetControls(&PinBaseSet.value, PinBased.value))
     {
@@ -376,7 +387,7 @@ uint64 SetVmxExecutionCTLS(uint8 cpunr, uint64 vmxctrl)
     // PrimarySet.Bits->ExIDT = TRUE;
 
     PrimarySet.Bits->MSRmap = TRUE; // 如果为 FALSE，代表拦截所有MSR读写
-    // PrimarySet.Bits->RDTSC = TRUE;
+
     PrimarySet.Bits->Secondary = TRUE;
 
     if (!SetControls(&PrimarySet.value, Primary.value))
@@ -396,8 +407,6 @@ uint64 SetVmxExecutionCTLS(uint8 cpunr, uint64 vmxctrl)
         SecondrySet.Bits->RDTSCP = IsSupportRDTSCP();
 
         SecondrySet.Bits->EPT = gvt->EnableEPT;
-
-        // SecondrySet.Bits->VPID=TRUE;
 
         if (!SetControls(&SecondrySet.value, Secondry.value))
         {
@@ -521,14 +530,14 @@ uint64 Efi_KipiStartVT(void *Context)
     return TRUE;
 }
 
-uint64 Efi_StartVT(PVT ospvt)
+uint64 Efi_StartVT(PVT pvt)
 {
     if (!IsSupportVT())
         return FALSE;
 
-    gvt = ospvt;
+    gvt = pvt;
 
-    InitOsApi(gvt, ospvt->Os.Data.kernelModule->DllBase);
+    InitOsApi(gvt, pvt->Os.Data.kernelModule->DllBase);
 
     InitHandlerVmExit();
     InitHandlerVmCall();
@@ -536,7 +545,12 @@ uint64 Efi_StartVT(PVT ospvt)
 
     gvt->Os.Api.KeIpiGenericCall(Efi_KipiStartVT, gvt);
 
+    ssdt = gvt->Os.Api.ExAllocatePool2(POOL_FLAG_NON_PAGED, 0x300 * sizeof(SERVICE_TABLE), (uint32)0x234567);
+    ServiceTableCount = InitSystemServiceTable(ssdt, L"\\SystemRoot\\System32\\ntdll.dll");
+    InitHandlerSSDT();
+
     OldSystemCall64 = rdmsr(MSR_IA32_LSTAR);
+    NewSystemCall64 = (uint64)MakeSyscall64();
     gvt->Os.Api.KeIpiGenericCall(KipiVmcall, (void *)VMCALL_HOOK_LSTAR);
     gvt->Os.Api.KeIpiGenericCall(KipiVmcall, (void *)VMCALL_HIDE_VMX);
 
@@ -618,14 +632,54 @@ uint64 Driver_StartVT(void *NtosKernelBase)
     InitHandlerVmCall();
     InitHandlerSystemService();
     gvt->Os.Api.KeIpiGenericCall(Driver_KipiStartVT, gvt);
+
+    ssdt = gvt->Os.Api.ExAllocatePool2(POOL_FLAG_NON_PAGED, 0x300 * sizeof(SERVICE_TABLE), (uint32)0x234567);
+    ServiceTableCount = InitSystemServiceTable(ssdt, L"\\SystemRoot\\System32\\ntdll.dll");
+    InitHandlerSSDT();
+
     OldSystemCall64 = rdmsr(MSR_IA32_LSTAR);
+    NewSystemCall64 = (uint64)MakeSyscall64();
     gvt->Os.Api.KeIpiGenericCall(KipiVmcall, (void *)VMCALL_HOOK_LSTAR);
     gvt->Os.Api.KeIpiGenericCall(KipiVmcall, (void *)VMCALL_HIDE_VMX);
 
     return TRUE;
 }
 
+PLDR_DATA_TABLE_ENTRY HideDriver(PLDR_DATA_TABLE_ENTRY ListEntry, wchar *name)
+{
+    PLDR_DATA_TABLE_ENTRY Header = ListEntry;
+    PLDR_DATA_TABLE_ENTRY Current = (PLDR_DATA_TABLE_ENTRY)ListEntry->InLoadOrderLinks.Flink;
 
+    while (Header != Current)
+    {
+        if (wstrstr(Current->BaseDllName.Buffer, name))
+        {
+            cli();
+            Current->InLoadOrderLinks.Blink->Flink = Current->InLoadOrderLinks.Flink;
+            Current->InLoadOrderLinks.Flink->Blink = Current->InLoadOrderLinks.Blink;
+            sti();
+            return Current;
+        }
+
+        Current = (PLDR_DATA_TABLE_ENTRY)Current->InLoadOrderLinks.Flink;
+    }
+
+    return NULL;
+}
+
+void *UnHideDriver(PLDR_DATA_TABLE_ENTRY ListEntry, PLDR_DATA_TABLE_ENTRY insert)
+{
+    PLDR_DATA_TABLE_ENTRY Header = ListEntry;
+    PLDR_DATA_TABLE_ENTRY Current = (PLDR_DATA_TABLE_ENTRY)ListEntry->InLoadOrderLinks.Flink;
+
+    cli();
+    insert->InLoadOrderLinks.Flink = Current->InLoadOrderLinks.Flink;
+    insert->InLoadOrderLinks.Blink = (PLIST_ENTRY)Current;
+
+    Current->InLoadOrderLinks.Flink->Blink = (PLIST_ENTRY)insert;
+    Current->InLoadOrderLinks.Flink = (PLIST_ENTRY)insert;
+    sti();
+}
 uint64 VmmEntry(PGUESTREG GuestRegs)
 {
     GuestRegs->CpuIndex = getapicID();
@@ -636,8 +690,8 @@ uint64 VmmEntry(PGUESTREG GuestRegs)
     vmx_read(GUEST_RFLAGS, &GuestRegs->GuestFlag);
     vmx_read(VM_EXIT_INSTRUCTION_LENGTH, &GuestRegs->InstrLen);
 
-    GuestRegs->EProcess = PsGetCurrentProcess();
-    GuestRegs->EThread = PsGetCurrentThread();
+    GuestRegs->EProcess = VmGetCurrentProcess();
+    GuestRegs->EThread = VmGetCurrentThread();
 
     return DispatchHandlerVmExit(GuestRegs);
 }

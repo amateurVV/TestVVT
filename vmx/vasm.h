@@ -40,3 +40,8 @@ extern unsigned long long HookerEngineLen;
 
 /// @brief asm vmcall for Kipi
 unsigned long long  KipiVmcall(void *Context);
+
+/// @brief 搜索特征码调用
+unsigned long long AsmCallForDriverEntry(void *NtosKernelBase);
+
+

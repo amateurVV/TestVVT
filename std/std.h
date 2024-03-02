@@ -7,8 +7,37 @@ uint32 CodeToWchar(wchar *buffer, void *hex, uint32 size);
 uint32 wstrcat(wchar *buffer, wchar *str1, wchar *str2);
 uint32 cstrcat(char *buffer, char *str1, char *str2);
 
+/***************************
+ * @brief 查找字符串
+ * @param str1 被查找的字符串
+ * @param str2 字符串
+ * @return 相同=TRUE,不同=FALSE
+ ***************************/
 uint32 wstrstr(wchar *str1, wchar *str2);
+
+/***************************
+ * @brief 查找字符串
+ * @param str1 被查找的字符串
+ * @param str2 字符串
+ * @return 相同=TRUE,不同=FALSE
+ ***************************/
 uint32 cstrstr(char *str1, char *str2);
+
+/***************************
+ * @brief 查找字符串,忽略大小写
+ * @param str1 被查找的字符串
+ * @param str2 字符串
+ * @return 相同=TRUE,不同=FALSE
+ ***************************/
+uint32 wstristr(wchar *str1, wchar *str2);
+
+/***************************
+ * @brief 查找字符串,忽略大小写
+ * @param str1 被查找的字符串
+ * @param str2 字符串
+ * @return 相同=TRUE,不同=FALSE
+ ***************************/
+uint32 cstristr(char *str1, char *str2);
 
 uint32 wstrtolower(wchar c);
 uint32 cstrtolower(char c);
@@ -19,8 +48,14 @@ uint32 wstrnicmp(const wchar *s1, const wchar *s2, uint32 n);
 uint32 wstrcmp(wchar *str1, wchar *str2);
 uint32 cstrcmp(char *str1, char *str2);
 
-uint32 wstricmp(wchar *str1, wchar *str2);
-uint32 cstricmp(char *str1, char *str2);
+/***************************
+ * @brief 比较字符串,忽略大小写
+ * @param str1 字符串1
+ * @param str2 字符串2
+ * @return 相同=TRUE,不同=FALSE
+ ***************************/
+uint32 std_wstricmp(wchar *str1, wchar *str2);
+uint32 std_cstricmp(char *str1, char *str2);
 
 uint32 wstrlen(wchar *str);
 uint32 cstrlen(char *str);
@@ -39,7 +74,6 @@ uint32 wstrTocstr(char *ansi, wchar *unicode);
 uint32 cstrTowstr(wchar *unicode, char *ansi);
 
 char *std_itoa(int num, char *str, int base);
-
 
 void *std_FindCode(char *Base, int size, char *code);
 int StrToBinary(char *code, char *pHex);

@@ -34,8 +34,8 @@ ServiceCreateThread:
     syscall
     ret
 
-global ServiceDebugProcess
-ServiceDebugProcess:
+global ServiceDebugProcessForName
+ServiceDebugProcessForName:
     mov r10,rcx
     mov rax,SERVICE_BASE + 5
     syscall
@@ -80,5 +80,49 @@ global ServiceEnableEptHook
 ServiceEnableEptHook:
     mov r10,rcx
     mov rax,SERVICE_BASE + 11
+    syscall
+    ret
+
+
+global ServiceGetMsg
+ServiceGetMsg:
+    mov r10,rcx
+    mov rax,SERVICE_BASE + 12
+    syscall
+    ret
+
+global ServiceHideDriver
+ServiceHideDriver:
+    mov r10,rcx
+    mov rax,SERVICE_BASE + 13
+    syscall
+    ret
+
+global ServiceUnHideDriver
+ServiceUnHideDriver:
+    mov r10,rcx
+    mov rax,SERVICE_BASE + 14
+    syscall
+    ret
+
+global ServiceSetCI
+ServiceSetCI:
+    mov r10,rcx
+    mov rax,SERVICE_BASE + 15
+    syscall
+    ret
+
+
+
+
+
+
+
+
+
+
+global VmcallGetMsg
+VmcallGetMsg:
+    mov rax,9
     syscall
     ret

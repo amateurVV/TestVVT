@@ -27,7 +27,20 @@
 #define MSR_IA32_PERF_GLOBAL_INUSE 0x392
 #define MSR_IA32_PEBS_ENABLE 0x3F1
 #define MSR_IA32_RTIT_OUTPUT_BASE 0x560
+#define MSR_IA32_RTIT_OUTPUT_MASK_PTRS 0x0561
+#define MSR_IA32_RTIT_CTL 0x570
+#define MSR_IA32_RTIT_STATUS 0x571
 #define MSR_IA32_RTIT_CR3_MATCH 0x572
+
+#define MSR_IA32_RTIT_ADDR0_A 0x580
+#define MSR_IA32_RTIT_ADDR1_A 0x582
+#define MSR_IA32_RTIT_ADDR2_A 0x584
+#define MSR_IA32_RTIT_ADDR3_A 0x586
+#define MSR_IA32_RTIT_ADDR0_B 0x581
+#define MSR_IA32_RTIT_ADDR1_B 0x583
+#define MSR_IA32_RTIT_ADDR2_B 0x585
+#define MSR_IA32_RTIT_ADDR3_B 0x587
+
 #define MSR_IA32_DS_AREA 0x600
 #define MSR_IA32_U_CET 0x6A0
 #define MSR_IA32_S_CET 0x6A2
@@ -75,7 +88,207 @@
 #define MSR_IA32_KERNEL_GS_BASE 0xC0000102
 #define MSR_IA32_TSC_AUX 0xC0000103
 
+
+#define MSR_IA32_PERF_CTL           0x199
+#define MSR_IA32_CLOCK_MODULATION   0x19A
+#define MSR_IA32_MPERF              0xE7
+#define MSR_IA32_APERF              0xE8
+#define MSR_PP0_ENERGY_STATUS       0x639
+
+
 #pragma pack(1)
+
+typedef union
+{
+    ///
+    /// Individual bit fields
+    ///
+    struct
+    {
+        ///
+        /// [Bit 0] TraceEn.
+        ///
+        unsigned long long TraceEn : 1;
+        ///
+        /// [Bit 1] CYCEn. If (CPUID.(EAX=07H, ECX=0):EBX[1] = 1).
+        ///
+        unsigned long long CYCEn : 1;
+        ///
+        /// [Bit 2] OS.
+        ///
+        unsigned long long OS : 1;
+        ///
+        /// [Bit 3] User.
+        ///
+        unsigned long long User : 1;
+        ///
+        /// [Bit 4] PwrEvtEn.
+        ///
+        unsigned long long PwrEvtEn : 1;
+        ///
+        /// [Bit 5] FUPonPTW.
+        ///
+        unsigned long long FUPonPTW : 1;
+        ///
+        /// [Bit 6] FabricEn. If (CPUID.(EAX=07H, ECX=0):ECX[3] = 1).
+        ///
+        unsigned long long FabricEn : 1;
+        ///
+        /// [Bit 7] CR3 filter.
+        ///
+        unsigned long long CR3 : 1;
+        ///
+        /// [Bit 8] ToPA.
+        ///
+        unsigned long long ToPA : 1;
+        ///
+        /// [Bit 9] MTCEn. If (CPUID.(EAX=07H, ECX=0):EBX[3] = 1).
+        ///
+        unsigned long long MTCEn : 1;
+        ///
+        /// [Bit 10] TSCEn.
+        ///
+        unsigned long long TSCEn : 1;
+        ///
+        /// [Bit 11] DisRETC.
+        ///
+        unsigned long long DisRETC : 1;
+        ///
+        /// [Bit 12] PTWEn.
+        ///
+        unsigned long long PTWEn : 1;
+        ///
+        /// [Bit 13] BranchEn.
+        ///
+        unsigned long long BranchEn : 1;
+        ///
+        /// [Bits 17:14] MTCFreq. If (CPUID.(EAX=07H, ECX=0):EBX[3] = 1).
+        ///
+        unsigned long long MTCFreq : 4;
+        unsigned long long Reserved3 : 1;
+        ///
+        /// [Bits 22:19] CYCThresh. If (CPUID.(EAX=07H, ECX=0):EBX[1] = 1).
+        ///
+        unsigned long long CYCThresh : 4;
+        unsigned long long Reserved4 : 1;
+        ///
+        /// [Bits 27:24] PSBFreq. If (CPUID.(EAX=07H, ECX=0):EBX[1] = 1).
+        ///
+        unsigned long long PSBFreq : 4;
+        unsigned long long Reserved5 : 4;
+        ///
+        /// [Bits 35:32] ADDR0_CFG. If (CPUID.(EAX=07H, ECX=1):EAX[2:0] > 0).
+        ///
+        unsigned long long ADDR0_CFG : 4;
+        ///
+        /// [Bits 39:36] ADDR1_CFG. If (CPUID.(EAX=07H, ECX=1):EAX[2:0] > 1).
+        ///
+        unsigned long long ADDR1_CFG : 4;
+        ///
+        /// [Bits 43:40] ADDR2_CFG. If (CPUID.(EAX=07H, ECX=1):EAX[2:0] > 2).
+        ///
+        unsigned long long ADDR2_CFG : 4;
+        ///
+        /// [Bits 47:44] ADDR3_CFG. If (CPUID.(EAX=07H, ECX=1):EAX[2:0] > 3).
+        ///
+        unsigned long long ADDR3_CFG : 4;
+        unsigned long long Reserved6 : 16;
+    } Bits;
+    ///
+    /// All bit fields as a 64-bit value
+    ///
+    unsigned long long value;
+} MSR_IA32_RTIT_CTL_REGISTER;
+typedef union
+{
+    ///
+    /// Individual bit fields
+    ///
+    struct
+    {
+        ///
+        /// [Bit 0] FilterEn, (writes ignored).
+        /// If (CPUID.(EAX=07H, ECX=0):EBX[2] = 1).
+        ///
+        unsigned long long FilterEn : 1;
+        ///
+        /// [Bit 1] ContexEn, (writes ignored).
+        ///
+        unsigned long long ContexEn : 1;
+        ///
+        /// [Bit 2] TriggerEn, (writes ignored).
+        ///
+        unsigned long long TriggerEn : 1;
+        unsigned long long Reserved1 : 1;
+        ///
+        /// [Bit 4] Error.
+        ///
+        unsigned long long Error : 1;
+        ///
+        /// [Bit 5] Stopped.
+        ///
+        unsigned long long Stopped : 1;
+        unsigned long long Reserved2 : 26;
+        ///
+        /// [Bits 48:32] PacketByteCnt. If (CPUID.(EAX=07H, ECX=0):EBX[1] > 3).
+        ///
+        unsigned long long PacketByteCnt : 17;
+        unsigned long long Reserved3 : 15;
+    } Bits;
+    ///
+    /// All bit fields as a 64-bit value
+    ///
+    unsigned long long value;
+} MSR_IA32_RTIT_STATUS_REGISTER;
+
+typedef union
+{
+    ///
+    /// Individual bit fields
+    ///
+    struct
+    {
+        unsigned long long Reserved : 5;
+        ///
+        /// [Bits 31:5] CR3[63:5] value to match.
+        ///
+        unsigned long long Cr3 : 27;
+        ///
+        /// [Bits 63:32] CR3[63:5] value to match.
+        ///
+        unsigned long long Cr3Hi : 32;
+    } Bits;
+    ///
+    /// All bit fields as a 64-bit value
+    ///
+    unsigned long long value;
+} MSR_IA32_RTIT_CR3_MATCH_REGISTER;
+
+typedef union
+{
+    ///
+    /// Individual bit fields
+    ///
+    struct
+    {
+        ///
+        /// [Bits 31:0] Virtual Address.
+        ///
+        unsigned long long VirtualAddress : 32;
+        ///
+        /// [Bits 47:32] Virtual Address.
+        ///
+        unsigned long long VirtualAddressHi : 16;
+        ///
+        /// [Bits 63:48] SignExt_VA.
+        ///
+        unsigned long long SignExt_VA : 16;
+    } Bits;
+    ///
+    /// All bit fields as a 64-bit value
+    ///
+    unsigned long long value;
+} MSR_IA32_RTIT_ADDR_REGISTER;
 
 typedef union
 {
@@ -94,7 +307,7 @@ typedef union
         unsigned long LmceOn : 1;                     // bit-20		LMCE On: When set, system software can program the MSRs associated with LMCE to configure delivery of some machine check exceptions to a single logical processor.
         unsigned long : 11;                           // bit-21:31		Reserved
         unsigned long : 32;                           // bit-32:64		Reserved
-    } Bits;
+    } ;
     unsigned long long value;
 } MSR_IA32_FEATURE_CONTROL_REGISTER, *PMSR_IA32_FEATURE_CONTROL_REGISTER;
 
@@ -310,7 +523,7 @@ typedef union _EXIT_QUALIFICATION_CR_ACCESS
         unsigned long long : 4;             // bit-12:15
         unsigned long long SourceData : 16; // bit-16:31	LMSW, the LMSW source data (CLTSand MOV CR, cleared to 0)
         unsigned long long : 32;            // bit-32:63
-    } Bits;
+    };
     unsigned long long value;
 } EXIT_QUALIFICATION_CR_ACCESS, *PEXIT_QUALIFICATION_CR_ACCESS;
 
@@ -325,8 +538,8 @@ typedef union _EXIT_REASON_FIELDS
         unsigned long MTF : 1;        // bit-28
         unsigned long VMXroot : 1;    // bit-29
         unsigned long Undefine2 : 1;  // bit-30
-        unsigned long Valid : 1;      // bit-31
-    } Bits;
+        unsigned long IsValid : 1;    // bit-31
+    };
     unsigned long long value;
 } EXIT_REASON_FIELDS, *PEXIT_REASON_FIELDS;
 
@@ -339,9 +552,9 @@ typedef union _EXIT_INTR_INFO
         unsigned long ErrorCode : 1; // bit-11	(0 = invalid; 1 = valid)
         unsigned long NMIToIRET : 1; // bit-12
         unsigned long Undefine : 18; // bit-13:30
-        unsigned long Valid : 1;     // bit-31
-    } Bits;
-    unsigned long value;
+        unsigned long IsValid : 1;   // bit-31
+    };
+    unsigned long long value;
 } EXIT_INTR_INFO, *PEXIT_INTR_INFO;
 
 typedef struct _VPID_EPT_CAPABILITIES
@@ -350,28 +563,34 @@ typedef struct _VPID_EPT_CAPABILITIES
 
 } VPID_EPT_CAPABILITIES, *PVPID_EPT_CAPABILITIES;
 
-typedef struct _IA32_APIC_BASE_MSR
+typedef union _IA32_APIC_BASE_MSR
 {
-    uint64 : 8;
-    uint64 BSP : 1;
-    uint64 : 1;
-    uint64 x2APIC : 1;
-    uint64 xAPIC : 1;
-    uint64 Base : 52;
-
+    struct
+    {
+        unsigned long long : 8;
+        unsigned long long BSP : 1;
+        unsigned long long : 1;
+        unsigned long long x2APIC : 1;
+        unsigned long long APIC : 1;
+        unsigned long long ApicBase : 52;
+    };
+    unsigned long long value;
 } IA32_APIC_BASE_MSR, *PIA32_APIC_BASE_MSR;
 
-typedef struct _CPU_INFO
+typedef union _CPU_INFO
 {
-    uint32 SteppingID : 4;
-    uint32 Model : 4;
-    uint32 FamilyID : 4;
-    uint32 ProcessorType : 2;
-    uint32 : 2;
-    uint32 ExtendedModelID : 4;
-    uint32 ExtendedFamilyID : 8;
-    uint32 : 4;
-
+    struct
+    {
+        unsigned long long SteppingID : 4;
+        unsigned long long Model : 4;
+        unsigned long long FamilyID : 4;
+        unsigned long long ProcessorType : 2;
+        unsigned long long : 2;
+        unsigned long long ExtendedModelID : 4;
+        unsigned long long ExtendedFamilyID : 8;
+        unsigned long long : 4;
+    };
+    unsigned long long value;
 } CPU_INFO, *PCPU_INFO;
 
 typedef union

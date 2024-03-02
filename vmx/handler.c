@@ -3,6 +3,7 @@
 #include "vasm.h"
 #include "vmcs.h"
 #include "msr.h"
+#include "std.h"
 #include "intel.h"
 #include "handler.h"
 #include "vmcall.h"
@@ -23,10 +24,10 @@ void GuestIncrementRIP(PGUESTREG GuestRegs)
 void InjectException(uint32 Type, uint32 Vector, uint32 DeliverErrorCode, uint32 ErrorCode, uint32 Instrlen)
 {
     EXIT_INTR_INFO EntryEvent = {0};
-    EntryEvent.Bits.Type = Type;
-    EntryEvent.Bits.Vector = Vector;
-    EntryEvent.Bits.ErrorCode = DeliverErrorCode;
-    EntryEvent.Bits.Valid = TRUE;
+    EntryEvent.Type = Type;
+    EntryEvent.Vector = Vector;
+    EntryEvent.ErrorCode = DeliverErrorCode;
+    EntryEvent.IsValid = TRUE;
     vmx_write(VM_ENTRY_INTERRUPTION_INFORMATION_FIELD, EntryEvent.value);
     if (DeliverErrorCode)
         vmx_write(VM_ENTRY_EXCEPTION_ERROR_CODE, ErrorCode);
@@ -45,6 +46,10 @@ void PushExcption(EXIT_INTR_INFO *Event)
 
 uint64 HandlerCRX(PGUESTREG GuestRegs)
 {
+
+    EXIT_QUALIFICATION_CR_ACCESS Exit = {0};
+    vmx_read(VM_EXIT_QUALIFICATION, &Exit.value);
+
     enum ACCESSTYPE
     {
         MOV_TO_CR,
@@ -53,20 +58,48 @@ uint64 HandlerCRX(PGUESTREG GuestRegs)
         LMSW
     };
 
-    long CR[] = {GUEST_CR0, 1, 2, GUEST_CR3, GUEST_CR4};
+    uint64 CR[] = {GUEST_CR0, 1, 2, GUEST_CR3, GUEST_CR4};
 
-    EXIT_QUALIFICATION_CR_ACCESS Exit = {0};
-    vmx_read(VM_EXIT_QUALIFICATION, &Exit.value);
+    // char *strType[] = {"MOV_TO_CR", "MOV_FROM_CR", "CLTS", "LMSW"};
+    // char *strCR[] = {"GUEST_CR0", "1", "2", "GUEST_CR3", "GUEST_CR4"};
 
-    int3p("HandlerCRX Exit. Set up VMXE");
+    // if (DebugObject.DebugER)
+    // {
+    //     wchar msg[0x100] = {0};
+    //     char name[0x12] = {0};
+    //     std_memcpy(name, VmGetProcessName(GuestRegs->EProcess), 0x10);
 
-    if (Exit.Bits.AccessType == MOV_TO_CR)
-        vmx_write(CR[Exit.Bits.NumCR], *((uint64 *)GuestRegs + Exit.Bits.NumReg));
-    else if (Exit.Bits.AccessType == MOV_FROM_CR)
-        vmx_read(CR[Exit.Bits.NumCR], ((uint64 *)GuestRegs + Exit.Bits.NumReg));
-    else if (Exit.Bits.AccessType == CLTS)
+    //     sprint(msg, L"%s,Handler CRX : %s,%s", name, strType[Exit.AccessType], strCR[Exit.NumCR]);
+
+    //     InsertMsg(1, GuestRegs, msg);
+    // }
+    int3p("HandlerCRX", Exit, GuestRegs);
+
+    if (Exit.AccessType == MOV_TO_CR)
+    {
+        vmx_write(CR[Exit.NumCR], *((uint64 *)GuestRegs + Exit.NumReg) | CR4_VMXE);
+        // vmx_write(CR4_READ_SHADOW, *((uint64 *)GuestRegs + Exit.NumReg) & ~CR4_VMXE);
+
+        uint64 cr4 = 0;
+        vmx_read(CR[Exit.NumCR], &cr4);
+        int3p("MOV_TO_CR", Exit, cr4, GuestRegs);
+        return TRUE;
+    }
+    else if (Exit.AccessType == MOV_FROM_CR)
+    {
+        if (Exit.NumCR == 4)
+        {
+            vmx_read(GUEST_CR4, ((uint64 *)GuestRegs + Exit.NumReg));
+            *((uint64 *)GuestRegs + Exit.NumReg) &= ~CR4_VMXE;
+            int3p("MOV_FROM_CR", Exit, GuestRegs);
+            return TRUE;
+        }
+        vmx_read(CR[Exit.NumCR], ((uint64 *)GuestRegs + Exit.NumReg));
+        int3p("MOV_FROM_CR", Exit, GuestRegs);
+    }
+    else if (Exit.AccessType == CLTS)
         int3p("HandlerCRX CLTS");
-    else if (Exit.Bits.AccessType == LMSW)
+    else if (Exit.AccessType == LMSW)
         int3p("HandlerCRX LMSW");
 
     return TRUE;
@@ -74,14 +107,29 @@ uint64 HandlerCRX(PGUESTREG GuestRegs)
 
 uint64 HandlerCPUID(PGUESTREG GuestRegs)
 {
-
+    PLIST_MONITOR monitor = IsMonitorProcess(GuestRegs->EProcess);
+    if (monitor)
+    {
+        if (readCS() & 1)
+        {
+            InjectExceptionGP();
+            return FALSE;
+        }
+        if (((PSLONG64)&GuestRegs->rax)->LowPart >= 0x40000000 && ((PSLONG64)&GuestRegs->rax)->LowPart < 0x50000000)
+        {
+            InjectExceptionGP();
+            return FALSE;
+        }
+    }
     switch (GuestRegs->rax)
     {
     case 1:
     {
         vmx_cpuid(GuestRegs);
         if (gvt->HideVMX)
-            GuestRegs->rcx &= ~CPUID_1_ECX_SUPPORT_VMX;
+        {
+            GuestRegs->rcx &= ~(1 << 31);
+        }
         break;
     }
     case 0x5555:
@@ -100,9 +148,32 @@ uint64 HandlerCPUID(PGUESTREG GuestRegs)
     return TRUE;
 }
 
+uint64 ExitHandlerVmx(PGUESTREG GuestRegs)
+{
+    // PLIST_MONITOR monitor = IsMonitorProcess(GuestRegs->EProcess);
+    // if (monitor)
+    // {
+    //     int3p("ExitHandlerVmx", GuestRegs);
+    //     if (readCS() & 1)
+    //     {
+    //         // int3p("EXIT_REASON_WRMSR CPL 3", GuestRegs->GuestRip);
+    //         InjectExceptionGP();
+    //         return FALSE;
+    //     }
+    //     if (((PSLONG64)&GuestRegs->rcx)->LowPart >= 0x40000000 && ((PSLONG64)&GuestRegs->rcx)->LowPart < 0x50000000)
+    //     {
+    //         // int3p("EXIT_REASON_WRMSR RCX", GuestRegs->rcx);
+    //         InjectExceptionGP();
+    //         return FALSE;
+    //     }
+    // }
+
+    return FALSE;
+}
 uint64 ExitNoHandler(PGUESTREG GuestRegs)
 {
-    int3p("ExitNoHandler", GuestRegs->ExitReason, GuestRegs);
+    // int3p("ExitNoHandler", GuestRegs->ExitReason, GuestRegs);
+    InjectExceptionGP();
     return TRUE;
 }
 
@@ -114,6 +185,23 @@ uint64 HandlerMisconfigEPT(PGUESTREG GuestRegs)
 
 uint64 HandlerRDMSR(PGUESTREG GuestRegs)
 {
+    // PLIST_MONITOR monitor = IsMonitorProcess(GuestRegs->EProcess);
+    // if (monitor)
+    // {
+    if (readCS() & 1)
+    {
+        // int3p("EXIT_REASON_WRMSR CPL 3", GuestRegs->GuestRip);
+        InjectExceptionGP();
+        return FALSE;
+    }
+    if (((PSLONG64)&GuestRegs->rcx)->LowPart >= 0x40000000 && ((PSLONG64)&GuestRegs->rcx)->LowPart < 0x50000000)
+    {
+        // int3p("EXIT_REASON_WRMSR RCX", GuestRegs->rcx);
+        InjectExceptionGP();
+        return FALSE;
+    }
+    //}
+
     switch (GuestRegs->rcx)
     {
     case MSR_IA32_FEATURE_CONTROL:
@@ -129,10 +217,14 @@ uint64 HandlerRDMSR(PGUESTREG GuestRegs)
         {
             SLONG64 value;
             value.QuadPart = gvt->vm[GuestRegs->CpuIndex].syscall.old;
-            GuestRegs->rax &= 0xFFFFFFFF00000000;
-            GuestRegs->rax |= value.LowPart;
-            GuestRegs->rdx &= 0xFFFFFFFF00000000;
-            GuestRegs->rdx |= value.HighPart;
+            // GuestRegs->rax &= 0xFFFFFFFF00000000;
+            // GuestRegs->rax |= value.LowPart;
+            ((PSLONG64)&GuestRegs->rax)->LowPart = value.LowPart;
+            ((PSLONG64)&GuestRegs->rdx)->LowPart = value.HighPart;
+
+            // GuestRegs->rdx &= 0xFFFFFFFF00000000;
+            // GuestRegs->rdx |= value.HighPart;
+            // int3p("MSR_IA32_LSTAR", GuestRegs->rax, GuestRegs->rdx, value.QuadPart);
             return TRUE;
         }
         break;
@@ -147,6 +239,23 @@ uint64 HandlerRDMSR(PGUESTREG GuestRegs)
 
 uint64 HandlerWRMSR(PGUESTREG GuestRegs)
 {
+    // PLIST_MONITOR monitor = IsMonitorProcess(GuestRegs->EProcess);
+    // if (monitor)
+    // {
+    if (readCS() & 1)
+    {
+        // int3p("EXIT_REASON_WRMSR CPL 3", GuestRegs->GuestRip);
+        InjectExceptionGP();
+        return FALSE;
+    }
+    if (((PSLONG64)&GuestRegs->rcx)->LowPart >= 0x40000000 && ((PSLONG64)&GuestRegs->rcx)->LowPart < 0x50000000)
+    {
+        // int3p("EXIT_REASON_WRMSR RCX", GuestRegs->rcx);
+        InjectExceptionGP();
+        return FALSE;
+    }
+    //}
+
     switch (GuestRegs->rcx)
     {
     case MSR_IA32_FEATURE_CONTROL:
@@ -154,8 +263,9 @@ uint64 HandlerWRMSR(PGUESTREG GuestRegs)
         if (gvt->HideVMX)
             if (GuestRegs->rax & 1)
             {
-                // 注入GP
-                return TRUE;
+                // InjectExceptionGP();
+                // return FALSE;
+                break;
             }
         break;
     }
@@ -196,15 +306,21 @@ uint64 HandlerEXCPTION(PGUESTREG GuestRegs)
     uint64 ExitQualification = 0;
     vmx_read(VM_EXIT_QUALIFICATION, &ExitQualification);
 
-    switch (Exit.Bits.Vector)
-    {
-    // case 0xE:
-    // {
+    // int3p("HandlerEXCPTION", GuestRegs, Exit, ExitQualification);
 
-    //     PushExcption(&Exit);
-    //     writeCR2(ExitQualification);
-    //     break;
-    // }
+    switch (Exit.Vector)
+    {
+    case 0xE:
+    {
+        PushExcption(&Exit);
+        writeCR2(ExitQualification);
+        return FALSE;
+    }
+    case 1:
+    {
+        InjectExceptionInt1();
+        return FALSE; // 返回FALSE不需要增加RIP
+    }
     case 3:
     {
         if (EptHandlerBreakPoint(GuestRegs))
@@ -239,12 +355,21 @@ uint64 HandlerViolationEPT(PGUESTREG GuestRegs)
     {
         DebugBreak("HandlerViolationEPT Read", eptve);
         DebugBreak("HandlerViolationEPT Read", GuestRegs, PhyAddr, VirAddr);
-        PEPT_HOOK_CONTEXT context = FindHookPage(VirAddr, GuestRegs->EProcess);
+        PEPT_HOOK_CONTEXT context = FindHookPage(PhyAddr, GuestRegs->EProcess);
         if (context)
         {
             PEPTE DestPTE = EptGetGpaPTE((PADDR_PACK)&PhyAddr);
-            DestPTE->Attribute = EPT_READ | EPT_WRITE;
-            DestPTE->PageFrame4KB = (uint64)context->TargetCodeAddrPhy >> 12;
+
+            if (context->HookType == EPT_EXECUTE)
+            {
+                DestPTE->Attribute = EPT_READ | EPT_WRITE;
+                DestPTE->PageFrame4KB = (uint64)context->TargetCodeAddrPhy >> 12;
+            }
+            else if (context->HookType == EPT_READ)
+            {
+                DestPTE->Attribute = EPT_READ | EPT_EXECUTE;
+                *(uint32 *)VirAddr = 0;
+            }
             vmx_invept(2, &gvt->Eptp.value);
         }
     }
@@ -252,12 +377,21 @@ uint64 HandlerViolationEPT(PGUESTREG GuestRegs)
     {
         DebugBreak("HandlerViolationEPT Write", eptve);
         DebugBreak("HandlerViolationEPT Write", GuestRegs, PhyAddr, VirAddr);
-        PEPT_HOOK_CONTEXT context = FindHookPage(VirAddr, GuestRegs->EProcess);
+        PEPT_HOOK_CONTEXT context = FindHookPage(PhyAddr, GuestRegs->EProcess);
         if (context)
         {
             PEPTE DestPTE = EptGetGpaPTE((PADDR_PACK)&PhyAddr);
-            DestPTE->Attribute = EPT_READ | EPT_WRITE;
-            DestPTE->PageFrame4KB = (uint64)context->TargetCodeAddrPhy >> 12;
+
+            if (context->HookType == EPT_EXECUTE)
+            {
+                DestPTE->Attribute = EPT_READ | EPT_WRITE;
+                DestPTE->PageFrame4KB = (uint64)context->TargetCodeAddrPhy >> 12;
+            }
+            else if (context->HookType == EPT_READ)
+            {
+                DestPTE->Attribute = EPT_WRITE | EPT_EXECUTE;
+            }
+
             vmx_invept(2, &gvt->Eptp.value);
         }
     }
@@ -265,7 +399,7 @@ uint64 HandlerViolationEPT(PGUESTREG GuestRegs)
     {
         DebugBreak("HandlerViolationEPT Exec", eptve);
         DebugBreak("HandlerViolationEPT Exec", GuestRegs, PhyAddr, VirAddr);
-        PEPT_HOOK_CONTEXT context = FindHookPage(VirAddr, GuestRegs->EProcess);
+        PEPT_HOOK_CONTEXT context = FindHookPage(PhyAddr, GuestRegs->EProcess);
         if (context)
         {
             PEPTE DestPTE = EptGetGpaPTE((PADDR_PACK)&PhyAddr);
@@ -298,13 +432,72 @@ void InitHandlerVmExit()
     HandlerExit[EXIT_REASON_EPT_MISCONFIG] = HandlerMisconfigEPT;
 
     HandlerExit[EXIT_REASON_VMCALL] = DispatchHandlerVmCall;
+
+    HandlerExit[EXIT_REASON_VMCLEAR] = ExitHandlerVmx;
+    HandlerExit[EXIT_REASON_VMLAUNCH] = ExitHandlerVmx;
+    HandlerExit[EXIT_REASON_VMPTRLD] = ExitHandlerVmx;
+    HandlerExit[EXIT_REASON_VMPTRST] = ExitHandlerVmx;
+    HandlerExit[EXIT_REASON_VMREAD] = ExitHandlerVmx;
+    HandlerExit[EXIT_REASON_VMRESUME] = ExitHandlerVmx;
+    HandlerExit[EXIT_REASON_VMWRITE] = ExitHandlerVmx;
+    HandlerExit[EXIT_REASON_VMXOFF] = ExitHandlerVmx;
+    HandlerExit[EXIT_REASON_VMXON] = ExitHandlerVmx;
+    HandlerExit[EXIT_REASON_VMFUNC] = ExitHandlerVmx;
 }
 
 uint64 DispatchHandlerVmExit(PGUESTREG GuestRegs)
 {
-    EXIT_REASON_FIELDS *Exit = (EXIT_REASON_FIELDS *)&GuestRegs->ExitReason;
 
-    if (HandlerExit[Exit->Bits.Basic](GuestRegs))
+    wchar msg[MSG_BUFFER_SIZE] = {0};
+
+    char name[0x12] = {0};
+
+    PLIST_MONITOR monitor = IsMonitorProcess(GuestRegs->EProcess);
+    if (monitor)
+    {
+        if (GuestRegs->ExitReason.Basic == EXIT_REASON_VMCALL && GuestRegs->rax == 3)
+        {
+        }
+        else
+        {
+            if (GuestRegs->ExitReason.Basic != EXIT_REASON_CPUID)
+            {
+
+                if (GuestRegs->ExitReason.Basic == EXIT_REASON_WRMSR || GuestRegs->ExitReason.Basic == EXIT_REASON_RDMSR)
+                {
+                    switch (GuestRegs->rcx)
+                    {
+                    case MSR_IA32_GS_BASE:
+                    case MSR_IA32_FS_BASE:
+                    case MSR_IA32_KERNEL_GS_BASE:
+                    case MSR_IA32_LSTAR:
+                    case MSR_IA32_CLOCK_MODULATION:
+                    case MSR_IA32_MPERF:
+                    case MSR_IA32_APERF:
+                    case MSR_PP0_ENERGY_STATUS:
+                    case MSR_IA32_PERF_CTL:
+                        break;
+
+                    default:
+                        sprint(msg, L"%S --> %s --> :rax:%x32,:rcx:%x32", monitor->name, strExit[GuestRegs->ExitReason.Basic], GuestRegs->rax, GuestRegs->rcx);
+                        InsertMsg(1, GuestRegs->EProcess, GuestRegs->EThread, msg);
+
+                        int3p("DispatchHandlerVmExit", strExit[GuestRegs->ExitReason.Basic], GuestRegs);
+                        break;
+                    }
+                }
+                else
+                {
+                    sprint(msg, L"%S --> %s --> :rax:%x32,:rcx:%x32", monitor->name, strExit[GuestRegs->ExitReason.Basic], GuestRegs->rax, GuestRegs->rcx);
+                    InsertMsg(1, GuestRegs->EProcess, GuestRegs->EThread, msg);
+
+                    int3p("DispatchHandlerVmExit", strExit[GuestRegs->ExitReason.Basic], GuestRegs);
+                }
+            }
+        }
+    }
+
+    if (HandlerExit[GuestRegs->ExitReason.Basic](GuestRegs))
     {
         GuestIncrementRIP(GuestRegs);
     }

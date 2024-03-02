@@ -11,7 +11,7 @@
 #include "ept.h"
 
 PLIST_EPT_HOOK_CONTEXT ListEptHook;
-uint64 g_lock;
+uint64 g_lock_ept;
 
 PEPT_HOOK_CONTEXT FindHookContext(void *HookAddrVir, void *EProcess)
 {
@@ -52,10 +52,10 @@ PEPT_HOOK_PROCESS FindHookProcess(PEPT_HOOK_CONTEXT HookContext, void *EProcess)
     return NULL;
 }
 
-PEPT_HOOK_CONTEXT FindHookPage(void *HookAddrVir, void *EProcess)
+PEPT_HOOK_CONTEXT FindHookPage(void *HookAddrPhy, void *EProcess)
 {
     uint64 Cr3 = TargetProcessCR3(EProcess);
-    uint64 HookAddrPage = (uint64)gvt->Os.Api.MmGetPhysicalAddress(HookAddrVir) >> 12;
+    uint64 HookAddrPage = (uint64)HookAddrPhy >> 12;
     writeCR3(Cr3);
 
     if (!HookAddrPage)
@@ -93,13 +93,13 @@ uint64 InsertHookContext(PEPT_HOOK_CONTEXT context)
         if (element)
         {
             element->context = context;
-            while (InterlockedCmpExchange64(&g_lock, 1, 0))
+            while (InterlockedCmpExchange64(&g_lock_ept, 1, 0))
                 ; // 空转
             element->Blink = Header->Blink;
             element->Flink = Header;
             Header->Blink->Flink = element;
             Header->Blink = element;
-            InterlockedCmpExchange64(&g_lock, 0, 1);
+            InterlockedCmpExchange64(&g_lock_ept, 0, 1);
             return TRUE;
         }
     }
@@ -298,6 +298,8 @@ uint64 EptSplitPde(PEPDE pde, PSMEMORY pte)
 /// @return TRUE:命中断并处理成功，FALSE:未命中断点
 uint64 EptHandlerBreakPoint(PGUESTREG GuestRegs)
 {
+    //int3p("EptHandlerBreakPoint 0", GuestRegs->GuestRip);
+    
     PEPT_HOOK_CONTEXT context = FindHookContext((void *)GuestRegs->GuestRip, GuestRegs->EProcess);
     if (!context)
         return FALSE;
@@ -305,9 +307,11 @@ uint64 EptHandlerBreakPoint(PGUESTREG GuestRegs)
     PEPT_HOOK_PROCESS hasProcess = &context->ListProcess.Process;
     if (hasProcess->Process != GuestRegs->EProcess)
     {
+        //int3p("EptHandlerBreakPoint 1", context);
         hasProcess = FindHookProcess(context, GuestRegs->EProcess);
         if (!hasProcess)
         {
+            //int3p("EptHandlerBreakPoint 2", hasProcess);
             uint64 CR3 = TargetProcessCR3(GuestRegs->EProcess);
 
             PLIST_EPT_HOOK_PROCESS ListProcess = gvt->Os.Api.ExAllocatePool2(POOL_FLAG_NON_PAGED_EXECUTE, sizeof(LIST_EPT_HOOK_PROCESS), TAG_HOOK_LIST);
@@ -316,7 +320,7 @@ uint64 EptHandlerBreakPoint(PGUESTREG GuestRegs)
             PSHELLCODE pShellCode = 0;
             SIZE_T CodeSize = sizeof(SHELLCODE);
 
-            if (NT_SUCCESS(gvt->Os.Api.ZwAllocateVirtualMemory(NtCurrentProcess(), (void*)&pShellCode, 0, &CodeSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)))
+            if (NT_SUCCESS(gvt->Os.Api.ZwAllocateVirtualMemory(NtCurrentProcess(), (void *)&pShellCode, 0, &CodeSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)))
             {
                 ULONG bits = 0;
                 std_memcpy(pShellCode, &context->ShellCode, sizeof(SHELLCODE));
@@ -366,10 +370,15 @@ uint64 EptHook(PEPT_HOOK_CONTEXT HookContext)
         HookContext->TargetCodeAddrPhy = (void *)DstCodePhyAddr;
         DebugBreak("InsertHookContext", DstCodePhyAddr, DestPTE, HookContext);
 
+        DestPTE->Attribute = HookContext->HookType;
+
         InsertHookContext(HookContext);
 
-        DestPTE->Attribute = EPT_EXECUTE;
-        DestPTE->PageFrame4KB = (uint64)gvt->Os.Api.MmGetPhysicalAddress(HookContext->NewPage) >> 12;
+        int3p("EptHook", gvt->Os.Data.g_CiOptions, ListEptHook);
+
+
+        if (HookContext->HookType == EPT_EXECUTE)
+            DestPTE->PageFrame4KB = (uint64)gvt->Os.Api.MmGetPhysicalAddress(HookContext->NewPage) >> 12;
 
         vmx_invept(2, &gvt->Eptp.value);
     }

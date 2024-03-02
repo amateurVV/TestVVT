@@ -287,6 +287,7 @@ typedef struct _EPT_HOOK_CONTEXT
 	// char TargetCode[0x100]; // Hook处的原代码+跳转至原代码的下一条指令
 	SMEMORY PTE;
 	LIST_EPT_HOOK_PROCESS ListProcess;
+	char HookType;
 } EPT_HOOK_CONTEXT, *PEPT_HOOK_CONTEXT;
 
 typedef struct _LIST_EPT_HOOK_CONTEXT
@@ -317,5 +318,5 @@ uint64 InsertHookContext(PEPT_HOOK_CONTEXT context);
 uint64 InsertHookProcess(PEPT_HOOK_CONTEXT context, PLIST_EPT_HOOK_PROCESS Process);
 
 PEPT_HOOK_CONTEXT FindHookContext(void *HookAddrVir, void *EProcess);
-PEPT_HOOK_CONTEXT FindHookPage(void *HookAddrVir, void *EProcess);
+PEPT_HOOK_CONTEXT FindHookPage(void *HookAddrPhy, void *EProcess);
 PEPT_HOOK_PROCESS FindHookProcess(PEPT_HOOK_CONTEXT HookContext, void *EProcess);

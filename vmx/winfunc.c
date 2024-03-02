@@ -55,8 +55,29 @@ uint64 InitOsApi(PVT ospvt, void *NtosKernelBase)
 	ospvt->Os.Api.MmAllocateContiguousMemory = GetExportFunctionByName(NtosKernelBase, "MmAllocateContiguousMemory");
 	ospvt->Os.Api.MmFreeContiguousMemory = GetExportFunctionByName(NtosKernelBase, "MmFreeContiguousMemory");
 
+	ospvt->Os.Data.PsLoadedModuleList = GetExportFunctionByName(NtosKernelBase, "PsLoadedModuleList");
+
 	ospvt->Os.Api.ZwCreateThreadEx = FindZwFuncAddr(NtosKernelBase, NR_NtCreateThreadEx);
 	ospvt->Os.Api.ZwWriteVirtualMemory = FindZwFuncAddr(NtosKernelBase, NR_NtWriteVirtualMemory);
 
 	return TRUE;
+}
+
+PLDR_DATA_TABLE_ENTRY GetModules(PLDR_DATA_TABLE_ENTRY ListEntry, wchar *name)
+{
+
+	PLDR_DATA_TABLE_ENTRY Header = ListEntry;
+	PLDR_DATA_TABLE_ENTRY Current = (PLDR_DATA_TABLE_ENTRY)ListEntry->InLoadOrderLinks.Flink;
+
+	while (Header != Current)
+	{
+		if (wstrstr(Current->BaseDllName.Buffer, name))
+		{
+			return Current;
+		}
+
+		Current = (PLDR_DATA_TABLE_ENTRY)Current->InLoadOrderLinks.Flink;
+	}
+
+	return NULL;
 }

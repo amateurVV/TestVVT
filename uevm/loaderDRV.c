@@ -28,7 +28,7 @@ PVT ospvt;
 PVM ospvm;
 
 UINTN TotalCPU = 0;
-PKLDR_DATA_TABLE_ENTRY kernelModule;
+PLDR_DATA_TABLE_ENTRY kernelModule;
 uint32 *g_CiOptions;
 void *StartFirstUserProcess;
 char Savecode[0x40];
@@ -48,17 +48,16 @@ BLPARCHSWITCHCONTEXT BlpArchSwitchContext;
 
 uint64 InitOsApi(PVT vt, void *NtosKernelBase);
 
-#define CONTAINING_RECORD(address, type, field) ((type *)((char *)(address) - (unsigned long long)(&((type *)0)->field)))
-PKLDR_DATA_TABLE_ENTRY GetModules(LIST_ENTRY *list, wchar *name)
+PLDR_DATA_TABLE_ENTRY Efi_GetModules(LIST_ENTRY *list, wchar *name)
 {
     for (LIST_ENTRY *entry = list->Flink; entry != list; entry = entry->Flink)
     {
-        PKLDR_DATA_TABLE_ENTRY module = CONTAINING_RECORD(entry, KLDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+        PLDR_DATA_TABLE_ENTRY module = CONTAINING_RECORD(entry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
         if (module)
         {
             if (name)
             {
-                if (wstricmp(name, module->BaseDllName.Buffer))
+                if (std_wstricmp(name, module->BaseDllName.Buffer))
                     return module;
             }
             else
@@ -162,7 +161,7 @@ EFI_STATUS HookedExitBootServices(IN EFI_HANDLE ImageHandle, IN UINTN MapKey)
 
     // 第二个参数为NULL,打印所有模块
     // kernelModule = GetModules(&pOslLoader->LoadOrderListHead, NULL);
-    kernelModule = GetModules(&pOslLoader->LoadOrderListHead, L"ntoskrnl.exe");
+    kernelModule = Efi_GetModules(&pOslLoader->LoadOrderListHead, L"ntoskrnl.exe");
     if (kernelModule->DllBase)
     {
         BlpArchSwitchContext(FirmwareContext);
@@ -201,7 +200,7 @@ EFI_STATUS HookedExitBootServices(IN EFI_HANDLE ImageHandle, IN UINTN MapKey)
     }
 
     // 导出表 查找 CI模块
-    PKLDR_DATA_TABLE_ENTRY CIModule = GetModules(&pOslLoader->LoadOrderListHead, L"CI.dll");
+    PLDR_DATA_TABLE_ENTRY CIModule = Efi_GetModules(&pOslLoader->LoadOrderListHead, L"CI.dll");
     if (CIModule)
     {
         EFI_PRINT(L"CIModule Found!!! addr %x64\r\n", CIModule->DllBase);
@@ -237,8 +236,13 @@ VOID HookStartFirstUserProcess()
 
     long ret;
     wchar SysPath[] = {L"\\??\\C:\\Users\\Sylar\\Desktop\\TestVT.sys"};
+    // wchar SysPath[] = {L"\\??\\C:\\Users\\qpalz\\Desktop\\TestVT.sys"};
+
     void *ImageBase = 0;
     void *ImageEntry = 0;
+
+    char shellcode[] = {"EB 04 DE AD C0 DE"};
+
     UNICODE_STRING filename;
     ospvt->Os.Api.RtlInitUnicodeString(&filename, SysPath);
 
@@ -252,14 +256,12 @@ VOID HookStartFirstUserProcess()
 
     if (ImageBase)
     {
-        typedef void (*func)();
-
-        func entry = (func)((uint64)ImageBase + 0x2837);
-
+        typedef void (*func)(void*);
+        func entry;
+        entry = (func)std_FindCode(ImageBase, GetSizeOfImage(ImageBase), shellcode);
         entry(ospvt->Os.Data.kernelModule->DllBase);
     }
 
-    // InitOsApi(gvt->Os);
     // 获取StartFirstUserProcess物理地址
     void *MapFirst = ospvt->Os.Api.MmGetPhysicalAddress(StartFirstUserProcess);
     // 映射内存,以便修改,参数3(0==MmNonCached)
@@ -346,6 +348,7 @@ EFI_STATUS EFIAPI UefiMain(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *Syste
 
         status = gST->BootServices->AllocatePool(EfiRuntimeServicesData, sizeof(VT), (void **)&efipvt);
         EFI_DEBUG(status);
+        std_memset(efipvt, sizeof(VT), 0);
 
         mOriginalExitBootServices = gST->BootServices->ExitBootServices;
         gST->BootServices->ExitBootServices = HookedExitBootServices;

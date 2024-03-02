@@ -2,6 +2,8 @@
     "files.associations": {
         "type.h": "c",
         "ntdef.h": "c",
-        "xlocmon": "c"
+        "xlocmon": "c",
+        "ratio": "c",
+        "xiosbase": "c"
     }
 }
